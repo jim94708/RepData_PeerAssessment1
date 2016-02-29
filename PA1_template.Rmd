@@ -7,19 +7,95 @@ output:
 
 
 ## Loading and preprocessing the data
+```{r}
+activity<-read.csv("activity.csv", header = TRUE, colClasses = c("numeric", "character", "numeric"), na.strings = "NA")
+activity$date<-as.Date(activity$date)
 
+library(dplyr)
+act.tbl<-tbl_df(activity)
+rm(activity)
+```
 
 
 ## What is mean total number of steps taken per day?
+```{r{}}
+q1<-act.tbl%>%
+  filter(steps != "NA")%>%
+  group_by(date)%>%
+  summarize(ttlSteps = sum(steps))
 
-
+hist(q1$ttlSteps, breaks = 10)
+abline(v=mean(q1$ttlSteps),col = 1)
+abline(v=median(q1$ttlSteps),col = 2)
+text(x = 5000, y = 15, labels = paste("mean = ", round(mean(q1$ttlSteps), digits = 2)))
+text(x = 5000, y = 13, labels = paste("median = ", median(q1$ttlSteps)))
+```
 
 ## What is the average daily activity pattern?
+```{r}
+q2<-act.tbl%>%
+  filter(steps != "NA")%>%
+  group_by(interval)%>%
+  summarize(avgSteps = mean(steps))
 
+plot(q2$interval, q2$avgSteps, data = q2, type = "l")
+maxint<-subset(q2, avgSteps==max(q2$avgSteps))
+text(x = 500, y = 200, labels = paste("Maximum interval = ", maxint$interval))
+abline(v = maxint$interval, col = 2)
+```
 
 
 ## Imputing missing values
+Looking at the orignal data we can see that there are `r sum(is.na(act.tbl$steps))` NAs in the steps variable.
+```{r}
+summary(act.tbl)
+```
+We impute missing values on a per interval basis using the mean steps taken within each interval for which we have data.  We can use the q2 data set as this contains the means per interval excluding the NAs.
 
+```{r}
+require(RH2)
+library(sqldf)
+tgt<-as.data.frame(act.tbl)
+src<-as.data.frame(q2)
 
+strSQL <- c("Update tgt
+            set tgt.steps = (select avgSteps from src where tgt.interval = src.interval)
+            where tgt.steps is NULL",
+            "select * from tgt")
+updated<-sqldf(strSQL)
+```
+
+Here is a histogram of the updated data set:
+```{r}
+q4<-updated%>%
+  group_by(date)%>%
+  summarize(ttlSteps = sum(steps))
+
+hist(q4$ttlSteps, breaks = 10)
+abline(v=mean(q4$ttlSteps),col = 1)
+abline(v=median(q4$ttlSteps),col = 2)
+text(x = 5000, y = 15, labels = paste("mean = ", round(mean(q4$ttlSteps), digits = 2)))
+text(x = 5000, y = 13, labels = paste("median = ", round(median(q4$ttlSteps), digits = 2)))
+```
+
+Since we imputed the values for the missing data as the means for their respective intervals there is no impact on the overall mean and minimal impact on the overall median from the original base data set.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+
+```{r}
+updated$day<-weekdays(updated$date)
+updated$weekend<-ifelse(updated$day == "Saturday" | updated$day == "Sunday","weekend", "weekday")
+updated$weekend<-as.factor(updated$weekend)
+```
+
+Make a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis). 
+
+```{r}
+library(ggplot2)
+q5<-updated%>%
+  group_by(interval, weekend)%>%
+  summarize(avgSteps = mean(steps))
+
+qplot(interval, avgSteps, data = q5, geom = "line", facets = weekend~.)
+```
